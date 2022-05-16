@@ -1,5 +1,13 @@
 ## xbanish
 
+### Changes in this Fork
+
+Added option `-u milliseconds` to show the mouse pointer again after the
+specified number of milliseconds has passed since the last keypress that hid
+the mouse pointer.
+
+### Description
+
 xbanish hides the mouse cursor when you start typing, and shows it again when
 the mouse cursor moves or a mouse button is pressed.
 This is similar to xterm's `pointerMode` setting, but xbanish works globally in
