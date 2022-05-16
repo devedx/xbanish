@@ -34,7 +34,7 @@ void show_cursor(void);
 void snoop_root(void);
 int snoop_xinput(Window);
 void snoop_legacy(Window);
-void set_alarm(XSyncAlarm *, XSyncTestType);
+void set_alarm(XSyncAlarm *, XSyncTestType, unsigned);
 void usage(char *);
 int swallow_error(Display *, XErrorEvent *);
 
@@ -50,9 +50,10 @@ static long last_device_change = -1;
 static Display *dpy;
 static int hiding = 0, legacy = 0, always_hide = 0, ignore_scroll = 0;
 static unsigned timeout = 0;
+static unsigned unhide = 0;
 static unsigned char ignored;
 static XSyncCounter idler_counter = 0;
-static XSyncAlarm idle_alarm = None;
+static XSyncAlarm idle_alarm = None, unhide_alarm = None;
 
 static int debug = 0;
 #define DPRINTF(x) { if (debug) { printf x; } };
@@ -91,7 +92,7 @@ main(int argc, char *argv[])
 		{"all", -1},
 	};
 
-	while ((ch = getopt(argc, argv, "adi:m:t:s")) != -1)
+	while ((ch = getopt(argc, argv, "adi:m:t:su:")) != -1)
 		switch (ch) {
 		case 'a':
 			always_hide = 1;
@@ -134,6 +135,9 @@ main(int argc, char *argv[])
 		case 's':
 			ignore_scroll = 1;
 			break;
+		case 'u':
+			unhide = strtoul(optarg, NULL, 0);
+			break;
 		default:
 			usage(argv[0]);
 		}
@@ -156,8 +160,8 @@ main(int argc, char *argv[])
 	if (always_hide)
 		hide_cursor();
 
-	/* required setup for the xsync alarms used by timeout */
-	if (timeout) {
+	/* required setup for the xsync alarms used by timeout and unhide */
+	if (timeout || unhide) {
 		if (XSyncQueryExtension(dpy, &sync_event, &error) != True)
 			errx(1, "no sync extension available");
 
@@ -228,6 +232,9 @@ main(int argc, char *argv[])
 				}
 			}
 
+			if (unhide)
+				set_alarm(&unhide_alarm, XSyncPositiveComparison, unhide);
+
 			hide_cursor();
 			break;
 
@@ -275,7 +282,7 @@ main(int argc, char *argv[])
 			break;
 
 		default:
-			if (!timeout ||
+			if ((!timeout && !unhide) ||
 			    e.type != (sync_event + XSyncAlarmNotify)) {
 				DPRINTF(("unknown event type %d\n", e.type));
 				break;
@@ -287,6 +294,8 @@ main(int argc, char *argv[])
 				    "cursor\n",
 				    XSyncValueLow32(alarm_e->counter_value)));
 				hide_cursor();
+			} else if (alarm_e->alarm == unhide_alarm) {
+				show_cursor();
 			}
 		}
 	}
@@ -372,7 +381,7 @@ show_cursor(void)
 
 	if (timeout) {
 		DPRINTF(("(re)setting timeout of %us\n", timeout));
-		set_alarm(&idle_alarm, XSyncPositiveComparison);
+		set_alarm(&idle_alarm, XSyncPositiveComparison, timeout * 1000);
 	}
 
 	if (!hiding)
@@ -552,7 +561,7 @@ done:
 }
 
 void
-set_alarm(XSyncAlarm *alarm, XSyncTestType test)
+set_alarm(XSyncAlarm *alarm, XSyncTestType test, unsigned ms)
 {
 	XSyncAlarmAttributes attr;
 	XSyncValue value;
@@ -563,8 +572,8 @@ set_alarm(XSyncAlarm *alarm, XSyncTestType test)
 	attr.trigger.counter = idler_counter;
 	attr.trigger.test_type = test;
 	attr.trigger.value_type = XSyncRelative;
-	XSyncIntsToValue(&attr.trigger.wait_value, timeout * 1000,
-	    (unsigned long)(timeout * 1000) >> 32);
+	XSyncIntsToValue(&attr.trigger.wait_value, ms,
+	    (unsigned long)ms >> 32);
 	XSyncIntToValue(&attr.delta, 0);
 
 	flags = XSyncCACounter | XSyncCATestType | XSyncCAValue | XSyncCADelta;
@@ -579,7 +588,7 @@ void
 usage(char *progname)
 {
 	fprintf(stderr, "usage: %s [-a] [-d] [-i mod] [-m [w]nw|ne|sw|se] "
-	    "[-t seconds] [-s]\n", progname);
+	    "[-t seconds] [-s] [-u milliseconds]\n", progname);
 	exit(1);
 }
 
